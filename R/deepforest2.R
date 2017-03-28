@@ -103,6 +103,7 @@ deepforest <- function(x, y, x_val = NULL, y_val =NULL, nfold = 5, index = NULL,
             }
         }
     }
+    colsample_bylayer <- pmin(1, colsample_bylayer)
 
     #Determine task
     if (is.null(nclass)) {
@@ -165,7 +166,8 @@ deepforest <- function(x, y, x_val = NULL, y_val =NULL, nfold = 5, index = NULL,
     # x_val <- x_val[ , .lcols]
 
     for (.l in 1:nlayer) {
-        .lcols <- sample(ncol(orig_x))[1:floor(ncol(orig_x) * colsample_bylayer[.l])]
+        .lcols <- sample(ncol(orig_x))[
+            1:max(1, floor(ncol(orig_x) * colsample_bylayer[.l]))]
         .colsamp[[.l]] <- .lcols
 
         if (.l == 1 | !accumulate) {
@@ -274,8 +276,8 @@ deepforest <- function(x, y, x_val = NULL, y_val =NULL, nfold = 5, index = NULL,
 mod <- deepforest(credc.train,credc[intrain,"Class"],
                   credc.test,credc[-intrain,"Class"],
                   nmeta=4, nlayer=10, nfold = 5, printby = "meta",
-                  colsample_bylayer = 0.5, accumulate = TRUE,
-                  colsample_add = TRUE)
+                  colsample_bylayer = 0.2, accumulate = TRUE,
+                  colsample_add = 0.1, metarandom = TRUE)
 
 
 a<-xgboost::xgb.DMatrix(data=as.matrix(iris[,1:4],label=as.numeric(iris[,5]=="setosa")))
