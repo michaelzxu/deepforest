@@ -1,19 +1,87 @@
-deepforest <- function(x, y, x_val = NULL, y_val =NULL, nlayer = 5, nmeta = 4,
-                       nclass = NULL, nfold = 5, index = NULL,
-                       eval_metric = NULL, missing = NA, metaparam = NULL,
-                       ntree = 10, subsample = 0.632, colsample = 0.2,
-                       printby = "fold", colsample_bylayer = 0.5,
+metaparam <- function (metatype, param = rep(list(list()), length(metatype)),
+                       metarandom = FALSE) {
+    .i <- 0
+    for (meta in metatype) {
+        .i <- .i + 1
+        if (meta == "bag") {
+            .chkdef <- list(booster = "gbtree",
+                            nrounds = 1,
+                            num_parallel_tree = 1000,
+                            subsample = 0.632,
+                            colsample_bytree = 0.2,
+                            max_depth = 99999,
+                            max_leaves = 99999,
+                            eta = 1)
+            .chkrnd <- list(gamma = runif(1, 0, 0.2),
+                            min_child_weight = runif(1, 0, 100),
+                            max_delta_step = rgamma(1, 1, 0.33),
+                            lambda = runif(1, 1, 10),
+                            alpha = runif(1, 0, 5),
+                            num_parallel_tree = runif(1, 200,1000),
+                            subsample = runif(1, 0.4, 1),
+                            colsample_bytree = runif(1, 0.1, 1))
+        } else if (meta %in% c("dart","boost")) {
+            .chkdef <- list(booster = ifelse(meta == "dart", "dart", "gbtree"),
+                            nrounds = 100,
+                            subsample = 0.632,
+                            colsample_bytree = 0.6,
+                            eta = 0.05,
+                            max_depth = 8)
+            .chkrnd <- list(gamma = runif(1, 0, 0.2),
+                            min_child_weight = runif(1, 0, 100),
+                            max_delta_step = rgamma(1, 1, 0.33),
+                            lambda = runif(1, 1, 10),
+                            alpha = runif(1, 0, 5),
+                            num_parallel_tree = runif(1, 200,1000),
+                            subsample = runif(1, 0.4, 1),
+                            colsample_bytree = runif(1, 0.1, 1),
+                            nrounds = runif(1, 10, 500),
+                            eta = runif(1, 0.001, 0.3))
+            if (meta == "dart") {
+                .chkrnd <- c(.chkrnd, rate_drop = runif(1, 0.00001, 0.4),
+                             skip_drop = runif(1, 0, 0.05))
+            }
+        } else if (meta == "lin") {
+            .chkdef <- list(booster = "gblinear",
+                            nrounds = 100)
+            .chkrnd <- list(lambda = rgamma(1, 1, 0.5)^2,
+                            alpha = rgamma(1, 1, 0.5)^2)
+        }
+        for (.chk in names(.chkdef)) {
+            if (is.null(param[[.i]][[.chk]])) {
+                param[[.i]] <- c(param[[.i]], .chkdef[.chk])
+                names(param[[.i]])[length(param[[.i]])] <- .chk
+            }
+        }
+        for (.chk in names(.chkrnd)) {
+            if (!is.null(param[[.i]][[.chk]])) {
+                if (param[[.i]][[.chk]] == "random") {
+                    param[[.i]][[.chk]] <- .chkrnd[.chk]
+                } else if (metarandom) {
+                    param[[.i]] <- c(param[[.i]], .chkrnd[.chk])
+                    names(param[[.i]])[length(param[[.i]])] <- .chk
+                }
+            }
+        }
+    }
+    return(param)
+}
+
+deepforest <- function(x, y, x_val = NULL, y_val =NULL, nfold = 5, index = NULL,
+                       nlayer = 5, nmeta = 4, nmetarep = 1, nclass = NULL,
+                       metatype = rep(c("bag", "boost", "dart", "lin"),
+                                      length = nmeta * nmetarep),
+                       metaparam = NULL, metarandom = FALSE,
+                       colsample_bylayer = 1, accumulate = FALSE, nthread = 2,
+                       eval_metric = NULL, missing = NA, printby = "fold",
+                       # subsample = 0.632, colsample = 0.2, max_depth = 8,
+                       # ntree = 10,
                        ...) {
     if (is.null(index)) {
         index <- caret::createFolds(y, k = nfold, list = TRUE)
     } else {
         if (class(index) != "list") stop("index must be a list")
         nfold <- length(index)
-    }
-
-    if (is.null(metaparam)) {
-        metaparam <- rep(list(model = "xgbforest",
-                              args = list(num_parallel_tree = 500), nmeta))
     }
 
     if (is.null(nclass)) {
@@ -52,19 +120,29 @@ deepforest <- function(x, y, x_val = NULL, y_val =NULL, nlayer = 5, nmeta = 4,
         }
     }
 
+    if (is.null(metaparam)) {
+        metaparam <- metaparam(metatype, metarandom = metarandom)
+    } else {
+        metaparam <- metaparam(metatype, metaparam, metarandom = metarandom)
+    }
+
     orig_x <- x
     orig_x_val <- x_val
+
+    .model <- rep(list(rep(list(vector("list", nfold)), nmeta)), nlayer)
+    .eval <- array(dim = c(nlayer, nmeta, nfold))
+    .colsamp <- vector("list", nlayer)
 
     .lcols <- sample(ncol(x))[1:floor(ncol(x) * colsample_bylayer)]
     x <- x[ , .lcols]
     x_val <- x_val[ , .lcols]
 
-    .strong <- vector("list", nlayer)
-    .strongeval <- numeric(nlayer)
-    .model <- rep(list(rep(list(vector("list", nfold)), nmeta)), nlayer)
-    .eval <- array(dim = c(nlayer, nmeta, nfold))
-
     for (.l in 1:nlayer) {
+        .colsamp[[.l]] <- .lcols
+
+        # .x.l <- matrix(nrow = nrow(x), ncol = 0)
+        # .x_val.l <- matrix(nrow = nrow(x_val), ncol = 0)
+
         .colnm <- paste0("L", .l, "_M", rep(1:nmeta, each =
                                                 ifelse(nclass == 2, 1, nclass)),
                          "_C", rep(1:ifelse(nclass == 2, 1, nclass), nmeta))
@@ -74,11 +152,6 @@ deepforest <- function(x, y, x_val = NULL, y_val =NULL, nlayer = 5, nmeta = 4,
         .x_val.l <- matrix(nrow = nrow(x_val), ncol = nmeta *
                                ifelse(nclass == 2, 1, nclass),
                            dimnames = list(NULL, .colnm))
-        .csbt <- ifelse(colsample * ncol(x) <= 1, 1 / ncol(x), colsample)
-        .mxd <- 99999
-        .mxl <- 99999
-        .subs <- subsample
-        .ntree <- ntree
 
         for (.m in 1:nmeta) {
             x_val.m <- xgboost::xgb.DMatrix(data = x_val,label = y_val,
@@ -93,36 +166,19 @@ deepforest <- function(x, y, x_val = NULL, y_val =NULL, nlayer = 5, nmeta = 4,
                 x.f <- xgboost::xgb.DMatrix(data = x[-index[[.f]], ],
                                             label = y[-index[[.f]]],
                                             missing = missing)
-                if (nclass == 1) {
+                if (nclass <= 2) {
                     .model[[.l]][[.m]][[.f]] <- xgboost::xgb.train(
-                        data = x.f, nrounds = 1,
-                        params = list(colsample_bytree = .csbt,
-                        subsample = .subs, eta = 1, max_leaves = .mxl,
-                        num_parallel_tree = .ntree, max_depth = .mxd),
-                        watchlist = list(val = x_val.m),
-                        objective = "reg:linear", verbose = FALSE, ...)
-                    .x.l[index[[.f]], .m] <- predict(.model[[.l]][[.m]][[.f]],
-                                                     x[index[[.f]], ])
-                } else if (nclass == 2) {
-                    .model[[.l]][[.m]][[.f]] <- xgboost::xgb.train(
-                        data = x.f, nrounds = 1,
-                        params = list(colsample_bytree = .csbt,
-                        subsample = .subs, eta = 1, max_leaves = .mxl,
-                        num_parallel_tree = .ntree, max_depth = .mxd),
-                        watchlist = list(val = x_val.m),
-                        objective = "binary:logistic", verbose = FALSE,
-                        ...)
+                        data = x.f, nrounds = metaparam[[.m]][["nrounds"]],
+                        objective =  ifelse(nclass == 1, "reg:linear",
+                                            "binary:logistic"),
+                        verbose = FALSE, params = metaparam[[.m]], ...)
                     .x.l[index[[.f]], .m] <- predict(.model[[.l]][[.m]][[.f]],
                                                      x[index[[.f]], ])
                 } else if (nclass > 2) {
                     .model[[.l]][[.m]][[.f]] <- xgboost::xgb.train(
-                        data = x.f, nrounds = 1,
-                        params = list(colsample_bytree = .csbt,
-                        subsample = .subs, eta = 1, max_leaves = .mxl,
-                        num_parallel_tree = .ntree, max_depth = .mxd),
-                        num_class = nclass, objective = "multi:softprob",
-                        watchlist = list(val = x_val.m),
-                        verbose = FALSE, ...)
+                        data = x.f, nrounds = metaparam[[.m]][["nrounds"]],
+                        objective = "multi:softprob", verbose = FALSE,
+                        params = metaparam[[.m]], ...)
                     .x.l[index[[.f]], ((.m - 1) * nclass + 1):(.m * nclass)] <-
                         predict(.model[[.l]][[.m]][[.f]], x[index[[.f]], ],
                                 reshape = TRUE)
@@ -159,52 +215,28 @@ deepforest <- function(x, y, x_val = NULL, y_val =NULL, nlayer = 5, nmeta = 4,
             gc()
         }
 
-        if (.l == 1) {
-            .strong[[.l]] <-
-                xgboost::xgb.train(data = xgboost::xgb.DMatrix(data = .x.l,
-                                                               label = y,
-                                                               missing = missing),
-                                   nrounds = 20, objective = "binary:logistic",
-                                   params = list(eta = 0.3, subsample = 0.5,
-                                                 colsample_bytree = max(1/ncol(x.tmp),0.5),
-                                                 max_depth = 5),
-                                   verbose = FALSE)
-            .strongeval[.l] <- eval_metric(y, predict(.strong[[.l]], .x.l))
-            tmpscore <- eval_metric(y_val, predict(.strong[[.l]], .x_val.l))
-        } else {
-            .strong[[.l]] <-
-                xgboost::xgb.train(data = xgboost::xgb.DMatrix(data = cbind(x.tmp, .x.l),
-                                                               label = y,
-                                                               missing = missing),
-                                   nrounds = 20, objective = "binary:logistic",
-                                   params = list(eta = 0.3, subsample = 0.5,
-                                                 colsample_bytree = max(1/ncol(x),0.5),
-                                                 max_depth = 5),
-                                   verbose = FALSE)
-            .strongeval[.l] <- eval_metric(y, predict(.strong[[.l]], cbind(x.tmp, .x.l)))
-            tmpscore <- eval_metric(y_val, predict(.strong[[.l]], cbind(x_val.tmp, .x_val.l)))
-        }
-
         .lcols <- sample(ncol(orig_x))[1:floor(ncol(orig_x) * colsample_bylayer)]
-        if (.l == 1) {
-            x.tmp <- .x.l
-            x_val.tmp <- .x_val.l
+
+        if (.l == 1 | !accumulate) {
+            x <- orig_x[ , .lcols]
+            x_val <- orig_x_val[ , .lcols]
         } else {
-            if (.strongeval[.l] > .strongeval[.l - 1]) {
-                x.tmp <- cbind(x.tmp, .x.l)
-                x_val.tmp <- cbind(x_val.tmp, .x_val.l)
-            }
+            x <- cbind(.x.l, orig_x[ , .lcols])
+            x_val <- cbind(.x_val.l, orig_x_val[ , .lcols])
         }
-        x <- cbind(x.tmp, orig_x[ , .lcols])
-        x_val <- cbind(x_val.tmp, orig_x_val[ , .lcols])
 
-        # .lcols <- sample(ncol(orig_x))[1:floor(ncol(orig_x) * colsample_bylayer)]
-        # x <- cbind(.x.l, orig_x[ , .lcols])
-        # x_val <- cbind(.x_val.l, orig_x_val[ , .lcols])
+        # if (.l == 1) {
+        #     x.tmp <- .x.l
+        #     x_val.tmp <- .x_val.l
+        # } else {
+        #     x.tmp <- cbind(x.tmp, .x.l)
+        #     x_val.tmp <- cbind(x_val.tmp, .x_val.l)
+        # }
+        # x <- cbind(x.tmp, orig_x[ , .lcols])
+        # x_val <- cbind(x_val.tmp, orig_x_val[ , .lcols])
 
-        cat(paste0("Layer ", .l, " average: ", mean(.eval[.l, , ]), "\n"))
-
-        cat(paste0("Layer ", .l, " expert: ", tmpscore, "\n"))
+        cat(paste0("Layer ", .l, " average: ",
+                   eval_metric(y_val, rowMeans(.x_val.l)), "\n"))
         gc()
     }
     return(structure(list(model = .model, eval = .eval), class = "deepforest"))
@@ -212,9 +244,8 @@ deepforest <- function(x, y, x_val = NULL, y_val =NULL, nlayer = 5, nmeta = 4,
 
 mod <- deepforest(credc.train,credc[intrain,"Class"],
                   credc.test,credc[-intrain,"Class"],
-                  nmeta=4, nlayer=10, nfold = 4,
-                  ntree = 1000, colsample = 0.6, subsample = 0.1, printby = "meta",
-                  colsample_bylayer = 0.2)
+                  nmeta=4, nlayer=10, nfold = 5, printby = "meta",
+                  colsample_bylayer = 1, accumulate = TRUE)''
 
 
 a<-xgboost::xgb.DMatrix(data=as.matrix(iris[,1:4],label=as.numeric(iris[,5]=="setosa")))

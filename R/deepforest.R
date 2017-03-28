@@ -150,7 +150,7 @@ Metrics::logLoss(agaricus.test$label,dfout2)
 
 
 credc <- read.csv("../../creditcard.csv")
-intrain <- sample(nrow(credc))[1:as.integer(nrow(credc)*0.1)]
+intrain <- sample(nrow(credc))[1:as.integer(nrow(credc)*0.5)]
 credc.train <- credc[intrain,which(!names(credc)=="Class")]
 credc.test <- credc[-intrain,which(!names(credc)=="Class")]
 
