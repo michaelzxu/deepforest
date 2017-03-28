@@ -17,7 +17,7 @@ metaparam <- function (metatype, param = rep(list(list()), length(metatype)),
                             max_delta_step = rgamma(1, 1, 0.33),
                             lambda = runif(1, 1, 10),
                             alpha = runif(1, 0, 5),
-                            num_parallel_tree = runif(1, 200,1000),
+                            num_parallel_tree = floor(runif(1, 200,1000)),
                             subsample = runif(1, 0.4, 1),
                             colsample_bytree = runif(1, 0.1, 1))
         } else if (meta %in% c("dart","boost")) {
@@ -99,7 +99,7 @@ deepforest <- function(x, y, x_val = NULL, y_val =NULL, nfold = 5, index = NULL,
                 colsample_bylayer <- seq(from = colsample_bylayer,
                                          to = 1, length.out = nlayer)
             } else {
-                rep(colsample_bylayer, nlayer)
+                colsample_bylayer <- rep(colsample_bylayer, nlayer)
             }
         }
     }
@@ -205,6 +205,8 @@ deepforest <- function(x, y, x_val = NULL, y_val =NULL, nfold = 5, index = NULL,
                 x.f <- xgboost::xgb.DMatrix(data = x[-index[[.f]], ],
                                             label = y[-index[[.f]]],
                                             missing = missing)
+                metaparam[[.m]][["colsample_bytree"]] <-
+                    max(metaparam[[.m]][["colsample_bytree"]], 2 / ncol(x.f))
                 if (nclass <= 2) {
                     .model[[.l]][[.m]][[.f]] <- xgboost::xgb.train(
                         data = x.f, nrounds = metaparam[[.m]][["nrounds"]],
@@ -255,16 +257,6 @@ deepforest <- function(x, y, x_val = NULL, y_val =NULL, nfold = 5, index = NULL,
             gc()
         }
 
-        # if (.l == 1) {
-        #     x.tmp <- .x.l
-        #     x_val.tmp <- .x_val.l
-        # } else {
-        #     x.tmp <- cbind(x.tmp, .x.l)
-        #     x_val.tmp <- cbind(x_val.tmp, .x_val.l)
-        # }
-        # x <- cbind(x.tmp, orig_x[ , .lcols])
-        # x_val <- cbind(x_val.tmp, orig_x_val[ , .lcols])
-
         cat(paste0("Layer ", .l, " average: ",
                    eval_metric(y_val, rowMeans(.x_val.l)), "\n"))
         gc()
@@ -275,14 +267,18 @@ deepforest <- function(x, y, x_val = NULL, y_val =NULL, nfold = 5, index = NULL,
 
 mod <- deepforest(credc.train,credc[intrain,"Class"],
                   credc.test,credc[-intrain,"Class"],
-                  nmeta=4, nlayer=10, nfold = 5, printby = "meta",
-                  colsample_bylayer = 0.2, accumulate = TRUE,
-                  colsample_add = 0.1, metarandom = TRUE)
+                  nmetarep = 2,
+                  nmeta=4, nlayer=5, nfold = 3, printby = "meta",
+                  colsample_bylayer = 0.4, accumulate = TRUE,
+                  colsample_add = TRUE, metarandom = TRUE)
 
-
-a<-xgboost::xgb.DMatrix(data=as.matrix(iris[,1:4],label=as.numeric(iris[,5]=="setosa")))
-mod<-xgboost::xgb.train(data= a, nrounds=1,num_parallel_tree = 3,colsample_bytree=0.25,objective="binary:logistic")
-a<-xgboost::xgb.DMatrix(data=as.matrix(iris[,1:4],label=as.integer(iris[,5])))
-mod<-xgboost::xgb.train(data= a, nrounds=1,num_parallel_tree = 3,colsample_bytree=0.25,objective="multi:softprob",num_class=3)
-predict(mod, a, predleaf=T)
-predict(mod, a, reshape=TRUE)
+# mod2 <- xgboost::xgb.train(data = xgboost::xgb.DMatrix(data = as.matrix(credc.train), label = credc[intrain,"Class"]),
+#                            max_depth = 8,
+#     eval_metric = "auc", nrounds = 100, eta = 0.1, watchlist = list(valid = xgboost::xgb.DMatrix(data = as.matrix(credc.test), label = credc[-intrain,"Class"])))
+#
+# a<-xgboost::xgb.DMatrix(data=as.matrix(iris[,1:4],label=as.numeric(iris[,5]=="setosa")))
+# mod<-xgboost::xgb.train(data= a, nrounds=1,num_parallel_tree = 3,colsample_bytree=0.25,objective="binary:logistic")
+# a<-xgboost::xgb.DMatrix(data=as.matrix(iris[,1:4],label=as.integer(iris[,5])))
+# mod<-xgboost::xgb.train(data= a, nrounds=1,num_parallel_tree = 3,colsample_bytree=0.25,objective="multi:softprob",num_class=3)
+# predict(mod, a, predleaf=T)
+# predict(mod, a, reshape=TRUE)
