@@ -7,6 +7,6 @@
 getFolds(y, nfold = 5, recycle = FALSE, list = TRUE)
 }
 \description{
-Shamelessly taken from \link{\code{caret::createFolds}}
+Shamelessly taken from \code{\link{caret::createFolds}}
 https://topepo.github.io/caret/
 }

@@ -23,5 +23,5 @@ computed and returned.}
 A matrix of the predictions
 }
 \description{
-Predict function for a \link{\code{deepforest}} object.
+Predict function for a \code{\link{deepforest}} object.
 }

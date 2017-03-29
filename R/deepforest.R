@@ -51,7 +51,7 @@
 #'@param metaparam
 #'A list indicating additional parameters for each meta model. The mechanism
 #'used to generate default values and create randomized values are in
-#'\link{\code{metaparam}}. If list is shorter than
+#'\code{\link{metaparam}}. If list is shorter than
 #'\code{nmeta * nmetarep} then all meta models without a clear \code{metaparam}
 #'will take on default values, so you should indicate manually tuned models
 #'first in \code{metatype}.
@@ -79,18 +79,18 @@
 #'approximated by the predictions from the layer immediately before.
 #'
 #'@param nthread
-#'The nthread argument passed to \link{\code{xgb.train}}.
+#'The nthread argument passed to \code{\link{xgb.train}}.
 #'
 #'@param eval_metric
-#'A character passed to \link{\code{xgb.train}}. If the default of
+#'A character passed to \code{\link{xgb.train}}. If the default of
 #'\code{NULL} is used, "rmse" is used for regression, "auc" for binary
 #'classification and "logloss" is used for multiclass. NOT YET WORKING THIS WAY!
 #'
 #'@param missing
-#'The \code{missing} argument passed to \link{\code{xgb.train}}.
+#'The \code{missing} argument passed to \code{\link{xgb.train}}.
 #'
 #'@param ...
-#'Additional arguments passed to \link{\code{xgb.train}}.
+#'Additional arguments passed to \code{\link{xgb.train}}.
 #'
 #'@return
 #'A \code{deepforest} object containing all the models constructed and sampling
@@ -341,7 +341,7 @@ deepforest <- function(x, y, x_val = NULL, y_val =NULL, nfold = 5, index = NULL,
 #'@title Deep Forest Prediction
 #'
 #'@description
-#'Predict function for a \link{\code{deepforest}} object.
+#'Predict function for a \code{\link{deepforest}} object.
 #'
 #'@param object
 #'A \code{deepforest} object

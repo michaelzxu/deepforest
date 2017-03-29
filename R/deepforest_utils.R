@@ -77,7 +77,7 @@ metaparam <- function (metatype, param = rep(list(list()), length(metatype)),
 #'@title Get n-folds
 #'
 #'@description
-#'Shamelessly taken from \link{\code{caret::createFolds}}
+#'Shamelessly taken from \code{\link{caret::createFolds}}
 #'https://topepo.github.io/caret/
 #'
 #'@export
