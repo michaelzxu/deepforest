@@ -5,11 +5,11 @@
 \title{Deep Forest}
 \usage{
 deepforest(x, y, x_val = NULL, y_val = NULL, nfold = 5, index = NULL,
-  nlayer = 5, nmeta = 4, nmetarep = 1, nclass = NULL,
-  metatype = rep(c("bag", "boost", "dart", "lin"), length = nmeta * nmetarep),
-  metaparam = NULL, metarandom = FALSE, colsample_bylayer = 1,
-  colsample_add = FALSE, accumulate = FALSE, nthread = 2,
-  eval_metric = NULL, missing = NA, printby = "fold", ...)
+  objective = NULL, eval_func = NULL, nlayer = 5, nmeta = 4,
+  nmetarep = 1, nclass = NULL, metatype = rep(c("bag", "boost", "dart",
+  "lin"), length = nmeta * nmetarep), metaparam = NULL, metarandom = FALSE,
+  colsample_bylayer = 1, colsample_add = FALSE, accumulate = FALSE,
+  nthread = 2, missing = NA, printby = "fold", ...)
 }
 \arguments{
 \item{x}{Object coercible to a matrix.}
@@ -26,6 +26,11 @@ is ignored.}
 
 \item{index}{A list of integers indicating observations belonging to each fold. Random
 sampling is used if \code{NULL} to create \code{nfold} folds.}
+
+\item{objective}{The objective passed to \code{\link{xgb.train}}. It is inferred by nclass if
+not specified.}
+
+\item{eval_func}{A function used to evaluate each meta model.}
 
 \item{nlayer}{The number of layers to stack.}
 
@@ -70,10 +75,6 @@ predictions from two layers before although it will be implicitly
 approximated by the predictions from the layer immediately before.}
 
 \item{nthread}{The nthread argument passed to \code{\link{xgb.train}}.}
-
-\item{eval_metric}{A character passed to \code{\link{xgb.train}}. If the default of
-\code{NULL} is used, "rmse" is used for regression, "auc" for binary
-classification and "logloss" is used for multiclass. NOT YET WORKING THIS WAY!}
 
 \item{missing}{The \code{missing} argument passed to \code{\link{xgb.train}}.}
 

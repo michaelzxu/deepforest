@@ -26,6 +26,10 @@
 #'A list of integers indicating observations belonging to each fold. Random
 #'sampling is used if \code{NULL} to create \code{nfold} folds.
 #'
+#'@param objective
+#'The objective passed to \code{\link{xgb.train}}. It is inferred by nclass if
+#'not specified.
+#'
 #'@param nlayer
 #'The number of layers to stack.
 #'
@@ -81,10 +85,8 @@
 #'@param nthread
 #'The nthread argument passed to \code{\link{xgb.train}}.
 #'
-#'@param eval_metric
-#'A character passed to \code{\link{xgb.train}}. If the default of
-#'\code{NULL} is used, "rmse" is used for regression, "auc" for binary
-#'classification and "logloss" is used for multiclass. NOT YET WORKING THIS WAY!
+#'@param eval_func
+#'A function used to evaluate each meta model.
 #'
 #'@param missing
 #'The \code{missing} argument passed to \code{\link{xgb.train}}.
@@ -98,14 +100,14 @@
 #'
 #'@export
 deepforest <- function(x, y, x_val = NULL, y_val =NULL, nfold = 5, index = NULL,
+                       objective = NULL, eval_func = NULL,
                        nlayer = 5, nmeta = 4, nmetarep = 1, nclass = NULL,
                        metatype = rep(c("bag", "boost", "dart", "lin"),
                                       length = nmeta * nmetarep),
                        metaparam = NULL, metarandom = FALSE,
                        colsample_bylayer = 1, colsample_add = FALSE,
-                       accumulate = FALSE, nthread = 2, eval_metric = NULL,
-                       missing = NA, printby = "fold",
-                       ...) {
+                       accumulate = FALSE, nthread = 2, missing = NA,
+                       printby = "fold", ...) {
 
     stopifnot(length(metatype) %in% c(nmeta, nmeta * nmetarep))
     stopifnot(any(length(colsample_bylayer == 1),
@@ -152,11 +154,11 @@ deepforest <- function(x, y, x_val = NULL, y_val =NULL, nfold = 5, index = NULL,
     }
 
     #Default metrics - taken from Metrics package
-    if (is.null(eval_metric)) {
+    if (is.null(eval_func)) {
         if (nclass == 1) {
             eval_metric <- "rmse"
             eval_func <- function(actual, predicted) {
-                sqrt(mean(se(actual, predicted)))
+                sqrt(mean((actual - predicted)^2))
             }
         } else if (nclass == 2) {
             eval_metric <- "auc"
@@ -177,6 +179,8 @@ deepforest <- function(x, y, x_val = NULL, y_val =NULL, nfold = 5, index = NULL,
                 score
             }
         }
+    } else {
+        eval_metric <- as.character(quote(eval_func))
     }
 
     #Coerce x
@@ -218,6 +222,8 @@ deepforest <- function(x, y, x_val = NULL, y_val =NULL, nfold = 5, index = NULL,
     .model <- rep(list(rep(list(vector("list", nfold)), nmeta * nmetarep)),
                   nlayer)
     .eval <- array(dim = c(nlayer, nmeta * nmetarep, nfold))
+    .wgts <- list()
+    .wgts.acc <- list()
     .colsamp <- vector("list", nlayer)
 
     for (.l in 1:nlayer) {
@@ -265,8 +271,8 @@ deepforest <- function(x, y, x_val = NULL, y_val =NULL, nfold = 5, index = NULL,
                 if (nclass <= 2) {
                     .model[[.l]][[.m]][[.f]] <- xgboost::xgb.train(
                         data = x.f, nrounds = metaparam[[.m]][["nrounds"]],
-                        objective =  ifelse(nclass == 1, "reg:linear",
-                                            "binary:logistic"),
+                        objective =  ifelse(!is.null(objective),objective,ifelse(nclass == 1, "reg:linear",
+                                            "binary:logistic")),
                         verbose = FALSE, nthread = nthread,
                         params = metaparam[[.m]], ...)
                     .x.l[index[[.f]], .m] <- predict(.model[[.l]][[.m]][[.f]],
@@ -274,7 +280,7 @@ deepforest <- function(x, y, x_val = NULL, y_val =NULL, nfold = 5, index = NULL,
                 } else if (nclass > 2) {
                     .model[[.l]][[.m]][[.f]] <- xgboost::xgb.train(
                         data = x.f, nrounds = metaparam[[.m]][["nrounds"]],
-                        objective = "multi:softprob", verbose = FALSE,
+                        objective = ifelse(!is.null(objective),objective,"multi:softprob"), verbose = FALSE,
                         nthread = nthread, params = metaparam[[.m]], ...)
                     .x.l[index[[.f]], ((.m - 1) * nclass + 1):(.m * nclass)] <-
                         predict(.model[[.l]][[.m]][[.f]], x[index[[.f]], ],
@@ -323,18 +329,27 @@ deepforest <- function(x, y, x_val = NULL, y_val =NULL, nfold = 5, index = NULL,
             .x_val.tmp <- cbind(.x_val.tmp, .x_val.l)
         }
 
+        if (nclass == 1) {
+            .wgts <- c(.wgts, list(stats::glm.fit(x = .x.l, y = y)$coefficients))
+            .wgts.acc <- c(.wgts.acc, list(stats::glm.fit(x = .x.tmp, y = y)$coefficients))
+        } else {
+            .wgts <- c(.wgts, list(stats::glm.fit(x = .x.l, y = y, family = binomial())$coefficients))
+            .wgts.acc <- c(.wgts.acc, list(stats::glm.fit(x = .x.tmp, y = y, family = binomial())$coefficients))
+        }
+
+        cat("------------------------------------------------\n")
         cat(paste0("Layer ", .l, ", Average ", eval_metric, " - ",
                    eval_func(y_val, rowMeans(.x_val.l)), "\n"))
-
         cat(paste0("Layer ", .l, ", Accumed ", eval_metric, " - ",
                    eval_func(y_val, rowMeans(.x_val.tmp)), "\n"))
-
+        cat("------------------------------------------------\n")
         gc()
     }
     return(structure(list(model = .model, colsamp = .colsamp, eval = .eval,
                           nlayer = nlayer, nmeta = nmeta, nmetarep = nmetarep,
                           nclass = nclass, accumulate = accumulate,
-                          metaparam = metaparam),
+                          weights = list(noacc = .wgts, acc = .wgts.acc),
+                          metaparam = metaparam, metatype = metatype),
                      class = "deepforest"))
 }
 
@@ -419,9 +434,9 @@ predict.deepforest <- function(object, newdata, nlayer = object$nlayer,
 
     if (reshape) {
         if (accumulate) {
-            return(rowMeans(.x.tmp))
+            return(.x.tmp %*% object$weights$acc[[nlayer]])
         } else {
-            return(rowMeans(.x.l))
+            return(.x.l %*% object$weights$noacc[[nlayer]])
         }
     } else {
         if (accumulate) {
@@ -431,3 +446,5 @@ predict.deepforest <- function(object, newdata, nlayer = object$nlayer,
         }
     }
 }
+
+
