@@ -330,18 +330,18 @@ deepforest <- function(x, y, x_val = NULL, y_val =NULL, nfold = 5, index = NULL,
         }
 
         if (nclass == 1) {
-            .wgts <- c(.wgts, list(stats::glm.fit(x = .x.l, y = y)$coefficients))
-            .wgts.acc <- c(.wgts.acc, list(stats::glm.fit(x = .x.tmp, y = y)$coefficients))
+            .wgts <- c(.wgts, list(stats::glm.fit(x = .x.l, y = y, intercept = FALSE)$coefficients))
+            .wgts.acc <- c(.wgts.acc, list(stats::glm.fit(x = .x.tmp, y = y, intercept = FALSE)$coefficients))
         } else {
-            .wgts <- c(.wgts, list(stats::glm.fit(x = .x.l, y = y, family = binomial())$coefficients))
-            .wgts.acc <- c(.wgts.acc, list(stats::glm.fit(x = .x.tmp, y = y, family = binomial())$coefficients))
+            .wgts <- c(.wgts, list(stats::glm.fit(x = .x.l, y = y, intercept = FALSE, family = binomial())$coefficients))
+            .wgts.acc <- c(.wgts.acc, list(stats::glm.fit(x = .x.tmp, y = y, intercept = FALSE, family = binomial())$coefficients))
         }
 
         cat("------------------------------------------------\n")
         cat(paste0("Layer ", .l, ", Average ", eval_metric, " - ",
-                   eval_func(y_val, rowMeans(.x_val.l)), "\n"))
+                   eval_func(y_val, .x_val.l %*% .wgts[[length(.wgts)]]), "\n"))
         cat(paste0("Layer ", .l, ", Accumed ", eval_metric, " - ",
-                   eval_func(y_val, rowMeans(.x_val.tmp)), "\n"))
+                   eval_func(y_val, .x_val.tmp %*% .wgts.acc[[length(.wgts.acc)]]), "\n"))
         cat("------------------------------------------------\n")
         gc()
     }
